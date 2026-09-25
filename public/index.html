@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticket Triage Demo</title>
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --ink:#1d1d1f; --muted:#6b6b70; --line:#e2e2de; --accent:#2f5bea; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141416; --card:#1e1e21; --ink:#ededed; --muted:#9a9aa0; --line:#333338; --accent:#7c9bff; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; padding:32px 16px; }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  p.lead { color: var(--muted); margin: 0 0 24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px; }
+  label { display:block; font-weight:600; margin:12px 0 4px; }
+  input, textarea, select { width:100%; font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--ink); }
+  textarea { min-height: 120px; resize: vertical; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-top:16px; }
+  button { font:inherit; padding:9px 16px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--ink); cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .samples { display:flex; gap:6px; flex-wrap:wrap; }
+  .samples button { font-size: 13px; padding: 4px 10px; }
+  .headline { display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:1.1rem; }
+  .pill { padding:2px 10px; border-radius:999px; border:1px solid var(--line); font-size:13px; }
+  .P1 { background:#d93025; color:#fff; border-color:#d93025; }
+  .P2 { background:#f29900; color:#fff; border-color:#f29900; }
+  table { width:100%; border-collapse:collapse; margin-top:12px; font-size:14px; }
+  td { padding:6px 0; border-bottom:1px solid var(--line); vertical-align:top; }
+  td:last-child { text-align:right; font-variant-numeric: tabular-nums; }
+  .bar { height:6px; background:var(--line); border-radius:3px; margin-top:4px; }
+  .bar > span { display:block; height:100%; background:var(--accent); border-radius:3px; }
+  .muted { color: var(--muted); }
+  .error { color:#d93025; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Support ticket triage</h1>
+  <p class="lead">One TypeSafe request answers seven questions about the ticket; plain code turns them into a queue, a priority and flags.</p>
+
+  <form class="card" id="form">
+    <div class="samples" id="samples"><span class="muted">Try:</span></div>
+    <label for="subject">Subject</label>
+    <input id="subject" maxlength="300">
+    <label for="body">Message</label>
+    <textarea id="body" maxlength="10000" required></textarea>
+    <div class="row">
+      <div style="flex:1;min-width:160px">
+        <label for="plan">Customer plan</label>
+        <select id="plan"><option>free</option><option>pro</option><option>enterprise</option></select>
+      </div>
+      <button class="primary" type="submit" id="go">Triage ticket</button>
+    </div>
+  </form>
+
+  <section class="card" id="result" hidden></section>
+</main>
+<script>
+const SAMPLES = {
+  "Double charge": ["Charged twice this month", "Hi, I see two charges of €49 on my card for the March subscription. Can you refund the duplicate please?", "pro"],
+  "Outage": ["URGENT: invoice export failing for ALL users", "Since this morning's update nobody in our company can export invoices to PDF. Clicking Export shows 'Error 500: renderer timeout'. We have to send 300 invoices today.", "enterprise"],
+  "How-to": ["How do I add my VAT number?", "Where can I add our company VAT number so it shows on the invoices we send? Thanks!", "free"],
+  "Hacked": ["Someone logged into my account", "I got an email about a login from Brazil at 3am and now there's a new bank account in our payout settings that I did not add.", "pro"],
+  "Angry": ["Third time asking - still broken", "Third ticket about the dashboard graphs not loading. Honestly we're looking at other tools now.", "pro"],
+};
+const $ = (id) => document.getElementById(id);
+for (const [name, [s, b, p]] of Object.entries(SAMPLES)) {
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.textContent = name;
+  btn.onclick = () => { $("subject").value = s; $("body").value = b; $("plan").value = p; };
+  $("samples").append(btn);
+}
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const pct = (x) => `<div class="bar"><span style="width:${Math.round(x * 100)}%"></span></div>`;
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const out = $("result");
+  out.hidden = false; out.innerHTML = '<span class="muted">Triaging…</span>'; $("go").disabled = true;
+  try {
+    const res = await fetch("/api/triage", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subject: $("subject").value, body: $("body").value, plan: $("plan").value }),
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || res.statusText);
+    const a = d.answers;
+    out.innerHTML = `
+      <div class="headline">
+        <strong>${esc(d.queue.replace("_", " "))}</strong>
+        <span class="pill ${d.priority}">${d.priority}</span>
+        ${d.suggestAutoReply ? '<span class="pill">suggest help-article reply</span>' : ""}
+      </div>
+      ${d.flags.length ? `<p>${d.flags.map((f) => `<span class="pill">${esc(f)}</span>`).join(" ")}</p>` : ""}
+      ${d.reviewReasons.length ? `<p class="error">Needs human review: ${esc(d.reviewReasons.join("; "))}</p>` : ""}
+      <table>
+        <tr><td>Category: <strong>${esc(a.category.choice)}</strong>${pct(a.category.confidence)}</td><td>confidence ${a.category.confidence.toFixed(2)}</td></tr>
+        <tr><td>Urgency (0–3)${pct(a.urgency.score / 3)}</td><td>${a.urgency.score.toFixed(2)}</td></tr>
+        <tr><td>Frustration (0–3)${pct(a.frustration.score / 3)}</td><td>${a.frustration.score.toFixed(2)}</td></tr>
+        <tr><td>Security concern${pct(a.security_concern.noul)}</td><td>${a.security_concern.noul.toFixed(2)}</td></tr>
+        <tr><td>Churn risk${pct(a.churn_risk.noul)}</td><td>${a.churn_risk.noul.toFixed(2)}</td></tr>
+        <tr><td>Refund requested${pct(a.refund_requested.noul)}</td><td>${a.refund_requested.noul.toFixed(2)}</td></tr>
+        <tr><td>Has repro steps${pct(a.has_repro_steps.noul)}</td><td>${a.has_repro_steps.noul.toFixed(2)}</td></tr>
+      </table>`;
+  } catch (err) {
+    out.innerHTML = `<p class="error">${esc(err.message)}</p>`;
+  } finally {
+    $("go").disabled = false;
+  }
+});
+</script>
+</body>
+</html>
