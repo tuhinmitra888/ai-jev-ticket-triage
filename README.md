@@ -4,6 +4,8 @@ Routes incoming support tickets to the right queue, sets a priority, and flags
 security incidents, churn risk and refund requests, using
 [TypeSafe](https://docs.typesafe.ai) typed AI judgments plus plain TypeScript rules.
 
+![A suspicious-login ticket routed to the security queue as P1, with each AI judgment and its probability](docs/screenshot.png)
+
 ## How it works
 
 1. **One API call per ticket.** All seven questions go to TypeSafe in a single request and are evaluated in parallel
